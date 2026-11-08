@@ -1,0 +1,55 @@
+name: Build ipatool (patched)
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/build.yml'
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.5'
+          check-latest: true
+
+      - name: Fetch ipatool v2.8.0 source
+        run: |
+          curl -sL https://github.com/majd/ipatool/archive/refs/tags/v2.8.0.tar.gz -o src.tgz
+          tar xzf src.tgz
+          ls
+
+      - name: Patch MAC check
+        run: |
+          cd ipatool-2.8.0
+          python3 - <<'EOF'
+          import re, pathlib
+          p = pathlib.Path('pkg/util/machine/mac_address.go')
+          s = p.read_text()
+          old = """func usableMacAddress(address net.HardwareAddr) bool {
+              return len(address) == 6 && address[0]&1 == 0 &&
+                  !bytes.Equal(address, []byte{0, 0, 0, 0, 0, 0}) &&
+                  !bytes.Equal(address, []byte{0x02, 0, 0, 0, 0, 0})
+          }"""
+          new = """func usableMacAddress(address net.HardwareAddr) bool {
+              return len(address) == 6 && address[0]&1 == 0
+          }"""
+          assert old in s, "pattern not found"
+          p.write_text(s.replace(old, new))
+          print("patched")
+          EOF
+
+      - name: Build static
+        run: |
+          cd ipatool-2.8.0
+          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -ldflags "-s -w" -o /tmp/ipatool-static ./
+          ls -la /tmp/ipatool-static
+          file /tmp/ipatool-static
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ipatool-linux-arm64-patched
+          path: /tmp/ipatool-static
