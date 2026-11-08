@@ -1,0 +1,31 @@
+name: Build ipatool musl v5
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/build-musl5.yml'
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build in Alpine
+        uses: addnab/docker-run-action@v3
+        with:
+          image: golang:1.26-alpine
+          options: -v ${{ github.workspace }}:/work -w /work
+          run: |
+            set -e
+            apk add --no-cache curl tar gcc musl-dev
+            curl -sL https://github.com/majd/ipatool/archive/refs/tags/v2.8.0.tar.gz -o s.tgz
+            tar xzf s.tgz
+            echo "cGFja2FnZSBtYWNoaW5lCgppbXBvcnQgKAoJImVycm9ycyIKCSJuZXQiCgkib3MiCikKCmNvbnN0ICgKCW1hY1ByaW9yaXR5UHJpbWFyeSA9IGlvdGEKCW1hY1ByaW9yaXR5UGh5c2ljYWwKCW1hY1ByaW9yaXR5RmFsbGJhY2sKKQoKY29uc3QgZml4ZWRNYWMgPSAiMDI6MTE6MjI6MzM6NDQ6NTUiCgp0eXBlIG1hY0FkZHJlc3NDYW5kaWRhdGUgc3RydWN0IHsKCWFkZHJlc3MgIG5ldC5IYXJkd2FyZUFkZHIKCXByaW9yaXR5IGludAp9CgpmdW5jIHVzYWJsZU1hY0FkZHJlc3MoYWRkcmVzcyBuZXQuSGFyZHdhcmVBZGRyKSBib29sIHsgcmV0dXJuIGxlbihhZGRyZXNzKSA+IDAgfQoKZnVuYyBzZWxlY3RNYWNBZGRyZXNzKGludGVyZmFjZXMgW11uZXQuSW50ZXJmYWNlLCBsb29rdXAgZnVuYyhuZXQuSW50ZXJmYWNlKSAobWFjQWRkcmVzc0NhbmRpZGF0ZSwgZXJyb3IpKSAoc3RyaW5nLCBlcnJvcikgewoJaWYgdiA6PSBvcy5HZXRlbnYoIklQQVRPT0xfRkFLRV9NQUMiKTsgdiAhPSAiIiB7CgkJaWYgaHcsIGVyciA6PSBuZXQuUGFyc2VNQUModik7IGVyciA9PSBuaWwgJiYgbGVuKGh3KSA9PSA2IHsKCQkJcmV0dXJuIGh3LlN0cmluZygpLCBuaWwKCQl9Cgl9Cgl2YXIgKAoJCXNlbGVjdGVkICBtYWNBZGRyZXNzQ2FuZGlkYXRlCgkJbG9va3VwRXJyIGVycm9yCgkpCglmb3IgXywgbmkgOj0gcmFuZ2UgaW50ZXJmYWNlcyB7CgkJaWYgbmkuRmxhZ3MmKG5ldC5GbGFnTG9vcGJhY2t8bmV0LkZsYWdQb2ludFRvUG9pbnQpICE9IDAgewoJCQljb250aW51ZQoJCX0KCQljLCBlcnIgOj0gbG9va3VwKG5pKQoJCWlmIGVyciAhPSBuaWwgewoJCQlsb29rdXBFcnIgPSBlcnJvcnMuSm9pbihsb29rdXBFcnIsIGVycikKCQkJY29udGludWUKCQl9CgkJaWYgIXVzYWJsZU1hY0FkZHJlc3MoYy5hZGRyZXNzKSB7CgkJCWNvbnRpbnVlCgkJfQoJCWlmIHNlbGVjdGVkLmFkZHJlc3MgPT0gbmlsIHx8IGMucHJpb3JpdHkgPCBzZWxlY3RlZC5wcmlvcml0eSB8fAoJCQkoYy5wcmlvcml0eSA9PSBzZWxlY3RlZC5wcmlvcml0eSAmJiBzdHJpbmcoYy5hZGRyZXNzKSA8IHN0cmluZyhzZWxlY3RlZC5hZGRyZXNzKSkgewoJCQlzZWxlY3RlZCA9IGMKCQl9Cgl9CglfID0gbG9va3VwRXJyCglpZiBzZWxlY3RlZC5hZGRyZXNzICE9IG5pbCB7CgkJcmV0dXJuIHNlbGVjdGVkLmFkZHJlc3MuU3RyaW5nKCksIG5pbAoJfQoJcmV0dXJuIGZpeGVkTWFjLCBuaWwKfQo=" | base64 -d > ipatool-2.8.0/pkg/util/machine/mac_address.go
+            cd ipatool-2.8.0
+            CGO_ENABLED=1 go build -trimpath -ldflags "-s -w" -o /work/ipatool-musl5 ./
+            ls -la /work/ipatool-musl5
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ipatool-musl5
+          path: ipatool-musl5
