@@ -1,0 +1,47 @@
+name: Build ipatool (patched, static)
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/build-static.yml'
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.5'
+      - name: Fetch source
+        run: |
+          curl -sL https://github.com/majd/ipatool/archive/refs/tags/v2.8.0.tar.gz -o src.tgz
+          tar xzf src.tgz
+      - name: Patch MAC check
+        run: |
+          python3 - <<'PYEOF2'
+          import pathlib
+          p = pathlib.Path('ipatool-2.8.0/pkg/util/machine/mac_address.go')
+          out=[]
+          for ln in p.read_text().split('\n'):
+              if 'bytes.Equal(address, []byte{0, 0, 0, 0, 0, 0})' in ln: continue
+              if 'bytes.Equal(address, []byte{0x02, 0, 0, 0, 0, 0})' in ln:
+                  if out and out[-1].rstrip().endswith('&&'):
+                      out[-1]=out[-1].rstrip()[:-2].rstrip()
+                  continue
+              out.append(ln)
+          p.write_text('\n'.join(out))
+          src=p.read_text(); i=src.find('func usableMacAddress')
+          print(src[i:i+200])
+          PYEOF2
+      - name: Build static
+        run: |
+          cd ipatool-2.8.0
+          CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -extldflags=-static" -tags "netgo,osusergo" -o /tmp/ipatool-static ./
+          ls -la /tmp/ipatool-static
+          file /tmp/ipatool-static
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ipatool-static
+          path: /tmp/ipatool-static
