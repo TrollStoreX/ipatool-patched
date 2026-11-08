@@ -1,0 +1,43 @@
+name: Build ipatool musl (Alpine)
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/build-musl.yml'
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build in Alpine
+        uses: addnab/docker-run-action@v3
+        with:
+          image: golang:1.26-alpine
+          options: -v ${{ github.workspace }}:/work -w /work
+          run: |
+            apk add --no-cache curl tar gcc musl-dev
+            curl -sL https://github.com/majd/ipatool/archive/refs/tags/v2.8.0.tar.gz -o s.tgz
+            tar xzf s.tgz
+            cd ipatool-2.8.0
+            python3 - <<'PYEOF2'
+            import pathlib
+            p = pathlib.Path('pkg/util/machine/mac_address.go')
+            out=[]
+            for ln in p.read_text().split('\n'):
+                if 'bytes.Equal(address, []byte{0, 0, 0, 0, 0, 0})' in ln: continue
+                if 'bytes.Equal(address, []byte{0x02, 0, 0, 0, 0, 0})' in ln:
+                    if out and out[-1].rstrip().endswith('&&'):
+                        out[-1]=out[-1].rstrip()[:-2].rstrip()
+                    continue
+                out.append(ln)
+            p.write_text('\n'.join(out))
+            print('patched ok')
+            PYEOF2
+            CGO_ENABLED=1 go build -trimpath -ldflags "-s -w" -o /work/ipatool-musl ./
+            ls -la /work/ipatool-musl
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ipatool-musl
+          path: ipatool-musl
