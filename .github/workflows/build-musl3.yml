@@ -1,0 +1,87 @@
+name: Build ipatool musl (v3)
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/build-musl3.yml'
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build in Alpine
+        uses: addnab/docker-run-action@v3
+        with:
+          image: golang:1.26-alpine
+          options: -v ${{ github.workspace }}:/work -w /work
+          run: |
+            apk add --no-cache curl tar gcc musl-dev
+            curl -sL https://github.com/majd/ipatool/archive/refs/tags/v2.8.0.tar.gz -o s.tgz
+            tar xzf s.tgz
+            cat > ipatool-2.8.0/pkg/util/machine/mac_address.go <<'GOEOF'
+package machine
+
+import (
+	"errors"
+	"fmt"
+	"net"
+	"os"
+)
+
+const fixedMac = "02:11:22:33:44:55"
+
+type macAddressCandidate struct {
+	address  net.HardwareAddr
+	priority int
+}
+
+func usableMacAddress(address net.HardwareAddr) bool {
+	return len(address) > 0
+}
+
+func selectMacAddress(interfaces []net.Interface, lookup func(net.Interface) (macAddressCandidate, error)) (string, error) {
+	if v := os.Getenv("IPATOOL_FAKE_MAC"); v != "" {
+		if hw, err := net.ParseMAC(v); err == nil && len(hw) == 6 {
+			return hw.String(), nil
+		}
+	}
+	var (
+		selected  macAddressCandidate
+		lookupErr error
+	)
+	for _, networkInterface := range interfaces {
+		if networkInterface.Flags&(net.FlagLoopback|net.FlagPointToPoint) != 0 {
+			continue
+		}
+		candidate, err := lookup(networkInterface)
+		if err != nil {
+			lookupErr = errors.Join(lookupErr, err)
+			continue
+		}
+		if !usableMacAddress(candidate.address) {
+			continue
+		}
+		if selected.address == nil || candidate.priority < selected.priority ||
+			(candidate.priority == selected.priority && string(candidate.address) < string(selected.address)) {
+			selected = candidate
+		}
+	}
+	if selected.address != nil {
+		return selected.address.String(), nil
+	}
+	_ = lookupErr
+	_ = fmt.Sprint
+	return fixedMac, nil
+}
+
+GOEOF
+            cd ipatool-2.8.0
+            head -40 pkg/util/machine/mac_address.go
+            CGO_ENABLED=1 go build -trimpath -ldflags "-s -w" -o /work/ipatool-musl3 ./
+            ls -la /work/ipatool-musl3
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ipatool-musl3
+          path: ipatool-musl3
