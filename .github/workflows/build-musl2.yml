@@ -1,0 +1,50 @@
+name: Build ipatool musl (v2)
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/build-musl2.yml'
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build in Alpine
+        uses: addnab/docker-run-action@v3
+        with:
+          image: golang:1.26-alpine
+          options: -v ${{ github.workspace }}:/work -w /work
+          run: |
+            apk add --no-cache curl tar gcc musl-dev python3
+            curl -sL https://github.com/majd/ipatool/archive/refs/tags/v2.8.0.tar.gz -o s.tgz
+            tar xzf s.tgz
+            cd ipatool-2.8.0
+            python3 - <<'PYEOF2'
+            import pathlib
+            # 1) usableMacAddress 永远返回 true（只要非空）
+            p = pathlib.Path('pkg/util/machine/mac_address.go')
+            s = p.read_text()
+            start = s.find('func usableMacAddress')
+            end = s.find('}', s.find('bytes.Equal(address, []byte{0x02, 0, 0, 0, 0, 0})')) + 1
+            assert start > 0 and end > start, "usableMacAddress not found"
+            s = s[:start] + 'func usableMacAddress(address net.HardwareAddr) bool {\n\treturn len(address) > 0\n}' + s[end:]
+            p.write_text(s)
+
+            # 2) selectMacAddress: 若最终为空，兜底伪造
+            s = p.read_text()
+            tail = 'if selected.address != nil {\n\t\treturn selected.address.String(), nil\n\t}'
+            assert tail in s, "return block not found"
+            s = s.replace(tail, 'if selected.address != nil {\n\t\treturn selected.address.String(), nil\n\t}\n\t// fallback: 容器环境网卡 MAC 无效\n\treturn "02:11:22:33:44:55", nil')
+            p.write_text(s)
+            print('patched v2 ok')
+            src = p.read_text()
+            i = src.find('func usableMacAddress'); print(src[i:i+120])
+            PYEOF2
+            CGO_ENABLED=1 go build -trimpath -ldflags "-s -w" -o /work/ipatool-musl2 ./
+            ls -la /work/ipatool-musl2
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ipatool-musl2
+          path: ipatool-musl2
